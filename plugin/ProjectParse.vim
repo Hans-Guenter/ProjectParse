@@ -126,7 +126,8 @@ function! s:GetProjectFilename()
     if exists("g:proj_filename")
         return g:proj_filename
     endif
-    return $HOME."/.vimprojects"
+    " return $HOME."/.vimprojects"
+    return expand("%")
 endfunction
 " }}}
 " InsertProject {{{
@@ -289,7 +290,7 @@ function! s:ParseVcProj(sln, vcproj, name)
 
     let vcproj = substitute(a:vcproj, "\\", "/", "g")
 
-    if vcproj !~ ".*\.vcproj"
+    if vcproj !~ ".*\.v[cf]proj"
         call s:Error(vcproj." is not a Visual Studio project file")
         return
     endif
@@ -319,31 +320,83 @@ function! s:ParseVcProj(sln, vcproj, name)
 
     let state = "Unset"
     let filter = ""
+    let s:mark = "\\\\nl\\\\"
 
-    for line in fLines
-        if state == "Unset"
-            if line =~ "\s*<Files>\s*"
-                let state = "Files"
-            endif
-        elseif state == "Files"
-            if line =~ "</Files>"
-                let state = "Unset"
-            elseif line =~ "\s*<Filter\s*"
-                let state = "Filtered"
-                let filter = ""
-            endif
-        elseif state == "Filtered"
-            if line =~ "</Filter>"
-                let state = "Files"
-            elseif line =~ "Name=.*" && filter == ""
-                let filter = substitute(line, '\s*Name=\"\(.*\)\"', '\1', "")
-            elseif line =~ "RelativePath=.*"
-                let var = substitute(line, '\s*RelativePath=\"\(.*\)\"', '\1', "")
-                let var = substitute(var, "^\.\\", "", "")
-                let var = substitute(var, "\\", "/", "g")
-                call s:AddFile(var, vcproj_dir)
-            endif
-        endif
+		" TODO vfproj are packed, i.e. <Filter Name and <File RelativePath are on the same line
+    for line1 in fLines
+			if vcproj =~ ".*\.vcproj"
+				let fLines2 = [line1]
+			else
+
+				let line1=substitute(line1, '\(<filter\)\s*\(name=.*\)\(>\)$','\1' . s:mark . '\2' . s:mark . '\3',"")
+				let line1=substitute(line1, '"\s*filter=', s:mark . 'Filter=',"")
+		"  " -----------------------------
+		"  <Filter Name="Source Files" Filter="cpp;c;cxx;rc;def;r;odl;hpj;bat;for;f90">
+		"  " - - - - - - - - - - - - - - -
+		"  <Filter
+		"  	Name="Source Files"
+		"  	Filter="cpp;c;cxx;rc;def;r;odl;idl;hpj;bat;f"
+		"  	>
+		"  " -----------------------------
+		 
+				let line1=substitute(line1, '\(<file\)\s*\(relativepath=.*\)\(>\)$','\1' . s:mark . '\2' . s:mark . '\3',"")
+		"  " -----------------------------
+		"  <File RelativePath="cgmps.f">
+		"  	<FileConfiguration Name="Special_DLL_Release|Win32" ExcludedFromBuild="true"/>
+		"  	<FileConfiguration Name="Special_DLL_Debug|Win32" ExcludedFromBuild="true"/></File>
+		"  " - - - - - - - - - - - - - - -
+		"  	<File
+		"  		RelativePath="bCOMTestActive.cpp"
+		"  		>
+		"  		<FileConfiguration
+		"  			Name="Unicode Debug|Win32"
+		"  			>
+		"  			<Tool
+		"  				Name="VCCLCompilerTool"
+		"  				AdditionalIncludeDirectories=""
+		"  				PreprocessorDefinitions=""
+		"  			/>
+		"  		</FileConfiguration>
+		"  	</File>
+
+				let line1=substitute(line1, '\(<fFilter\)\s*\(name=.*\)\(/>\)$','\1' . s:mark . '\2' . s:mark . '\3>' . s:mark . '</File>',"")
+		"  " -----------------------------
+		"  <File RelativePath="a0000.f"/>
+		"  " - - - - - - - - - - - - - - -
+		"  	<File
+		"  		RelativePath="fdfilcmp2.f"
+		"  		>
+		"  	</File>
+		"  " -----------------------------
+		"
+		  	let fLines2 = split (line1, s:mark)
+			endif
+    	for line in fLines2
+    		" echomsg line
+					if state == "Unset"
+							if line =~ "\s*<Files>\s*"
+									let state = "Files"
+							endif
+					elseif state == "Files"
+							if line =~ "</Files>"
+									let state = "Unset"
+							elseif line =~ "\s*<Filter\s*"
+									let state = "Filtered"
+									let filter = ""
+							endif
+					elseif state == "Filtered"
+							if line =~ "</Filter>"
+									let state = "Files"
+							elseif line =~ "Name=.*" && filter == ""
+									let filter = substitute(line, '\s*Name=\"\(.*\)\"', '\1', "")
+							elseif line =~ "RelativePath=.*"
+									let var = substitute(line, '\s*RelativePath=\"\(.*\)\"', '\1', "")
+									let var = substitute(var, "^\.\\", "", "")
+									let var = substitute(var, "\\", "/", "g")
+									call s:AddFile(var, vcproj_dir)
+							endif
+					endif
+			endfor
     endfor
 
     call s:CloseFold()
@@ -896,7 +949,7 @@ function! s:ProjectParse(f)
     try
         if     f =~ ".*\.sln"
             call s:ParseVcSln(f)
-        elseif f =~ ".*\.vcproj"
+        elseif f =~ ".*\.v[cf]proj"
             call s:ParseVcProj("", f, "")
         elseif f =~ ".*\.workspace"
             call s:ParseCbWorkspace(f)
@@ -934,4 +987,3 @@ if !exists("g:ProjectParseNoAutoUpdate")
     call s:UpdateProjects(0)
 endif
 "}}}
-
